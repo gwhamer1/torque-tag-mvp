@@ -1,4 +1,3 @@
-import { promises as fs } from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
 import { readStoredFileBuffer } from "@/lib/storage";
@@ -34,9 +33,7 @@ export async function GET(
     if (!filePath.startsWith(path.resolve(dir))) {
       return NextResponse.json({ error: "Invalid file path." }, { status: 400 });
     }
-    const buffer = await readStoredFileBuffer(kind as "photos" | "reports" | "certs", safeFileName).catch(() =>
-      fs.readFile(filePath),
-    );
+    const buffer = await readStoredFileBuffer(kind as "photos" | "reports" | "certs", safeFileName);
     const type =
       contentTypes[kind] ??
       (fileName.toLowerCase().endsWith(".png")

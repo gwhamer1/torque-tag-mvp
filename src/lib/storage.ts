@@ -23,6 +23,7 @@ export const storageDirs = {
 type StorageKind = keyof typeof storageDirs;
 
 export async function ensureStorage() {
+  if (isSupabaseStorageConfigured() || process.env.VERCEL) return;
   await Promise.all(Object.values(storageDirs).map((dir) => fs.mkdir(dir, { recursive: true })));
 }
 
@@ -73,11 +74,14 @@ export async function readStoredFileBuffer(kind: StorageKind, fileName: string) 
     return downloadSupabaseObject(`torque-${kind}`, fileName);
   }
 
+  if (process.env.VERCEL) {
+    throw new Error("Supabase storage is required in Vercel deployments.");
+  }
+
   return fs.readFile(resolveStoredPath(kind, fileName));
 }
 
 export async function readRecords(): Promise<TorqueRecord[]> {
-  await ensureStorage();
   if (isSupabaseStorageConfigured()) {
     try {
       return JSON.parse((await downloadSupabaseObject(metadataBucket, "records.json")).toString("utf8")) as TorqueRecord[];
@@ -86,6 +90,7 @@ export async function readRecords(): Promise<TorqueRecord[]> {
     }
   }
 
+  await ensureStorage();
   try {
     return JSON.parse(await fs.readFile(recordsPath, "utf8")) as TorqueRecord[];
   } catch {
@@ -94,7 +99,6 @@ export async function readRecords(): Promise<TorqueRecord[]> {
 }
 
 export async function writeRecords(records: TorqueRecord[]) {
-  await ensureStorage();
   if (isSupabaseStorageConfigured()) {
     await uploadSupabaseObject(
       metadataBucket,
@@ -105,6 +109,7 @@ export async function writeRecords(records: TorqueRecord[]) {
     return;
   }
 
+  await ensureStorage();
   await fs.writeFile(recordsPath, JSON.stringify(records, null, 2));
 }
 
@@ -138,7 +143,6 @@ export async function findRecord(id: string) {
 }
 
 export async function readCerts(): Promise<CertRecord[]> {
-  await ensureStorage();
   if (isSupabaseStorageConfigured()) {
     try {
       return JSON.parse((await downloadSupabaseObject(metadataBucket, "certs.json")).toString("utf8")) as CertRecord[];
@@ -147,6 +151,7 @@ export async function readCerts(): Promise<CertRecord[]> {
     }
   }
 
+  await ensureStorage();
   try {
     return JSON.parse(await fs.readFile(certsPath, "utf8")) as CertRecord[];
   } catch {
@@ -172,6 +177,7 @@ export async function addCert(file: StoredFile) {
     return cert;
   }
 
+  await ensureStorage();
   await fs.writeFile(certsPath, JSON.stringify(certs, null, 2));
   return cert;
 }
