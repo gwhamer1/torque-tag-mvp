@@ -14,6 +14,10 @@ const recordsPath = path.join(storageRoot, "records.json");
 const certsPath = path.join(storageRoot, "certs.json");
 const metadataBucket = "torque-app-data";
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production";
+}
+
 export const storageDirs = {
   photos: path.join(storageRoot, "photos"),
   reports: path.join(storageRoot, "reports"),
@@ -23,7 +27,7 @@ export const storageDirs = {
 type StorageKind = keyof typeof storageDirs;
 
 export async function ensureStorage() {
-  if (isSupabaseStorageConfigured() || process.env.VERCEL) return;
+  if (isSupabaseStorageConfigured() || isProductionRuntime()) return;
   await Promise.all(Object.values(storageDirs).map((dir) => fs.mkdir(dir, { recursive: true })));
 }
 
@@ -57,7 +61,10 @@ export async function saveBufferFile(
 
   if (isSupabaseStorageConfigured()) {
     await uploadSupabaseObject(`torque-${kind}`, fileName, buffer, contentTypeFor(kind, fileName));
+  } else if (isProductionRuntime()) {
+    throw new Error("Supabase storage is required in production deployments.");
   } else {
+    await ensureStorage();
     await fs.writeFile(path.join(storageDirs[kind], fileName), buffer);
   }
 
@@ -74,8 +81,8 @@ export async function readStoredFileBuffer(kind: StorageKind, fileName: string) 
     return downloadSupabaseObject(`torque-${kind}`, fileName);
   }
 
-  if (process.env.VERCEL) {
-    throw new Error("Supabase storage is required in Vercel deployments.");
+  if (isProductionRuntime()) {
+    throw new Error("Supabase storage is required in production deployments.");
   }
 
   return fs.readFile(resolveStoredPath(kind, fileName));
@@ -89,6 +96,8 @@ export async function readRecords(): Promise<TorqueRecord[]> {
       return [];
     }
   }
+
+  if (isProductionRuntime()) return [];
 
   await ensureStorage();
   try {
@@ -107,6 +116,10 @@ export async function writeRecords(records: TorqueRecord[]) {
       "application/json",
     );
     return;
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error("Supabase storage is required in production deployments.");
   }
 
   await ensureStorage();
@@ -151,6 +164,8 @@ export async function readCerts(): Promise<CertRecord[]> {
     }
   }
 
+  if (isProductionRuntime()) return [];
+
   await ensureStorage();
   try {
     return JSON.parse(await fs.readFile(certsPath, "utf8")) as CertRecord[];
@@ -175,6 +190,10 @@ export async function addCert(file: StoredFile) {
       "application/json",
     );
     return cert;
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error("Supabase storage is required in production deployments.");
   }
 
   await ensureStorage();
