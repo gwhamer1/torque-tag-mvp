@@ -1,4 +1,6 @@
 import path from "path";
+import { writeFile } from "fs/promises";
+import { tmpdir } from "os";
 import { expect, test } from "@playwright/test";
 
 test("field workflow smoke test", async ({ page }) => {
@@ -26,6 +28,19 @@ test("field workflow smoke test", async ({ page }) => {
   await page.getByLabel("Expected torque ft/lbs").fill("150");
 
   await page.getByRole("checkbox").check();
+  await page.getByRole("textbox", { name: "Tag #", exact: true }).fill("");
+  await expect(page.getByText("Tag number is required before generating the report.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Generate DS 2.12 Word report/i })).toBeDisabled();
+  await page.getByRole("textbox", { name: "Tag #", exact: true }).fill("TQ 428");
+  await page.getByLabel("Torque applied ft/lbs").fill("");
+  await expect(page.getByText("Torque applied ft/lbs is required before generating the report.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Generate DS 2.12 Word report/i })).toBeDisabled();
+  await page.getByLabel("Torque applied ft/lbs").fill("150");
+  await page.getByLabel("Torqued by").fill("");
+  await expect(page.getByText("Torqued by is required before generating the report.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Generate DS 2.12 Word report/i })).toBeDisabled();
+  await page.getByLabel("Torqued by").fill("Dill, Bob");
+
   const generateResponsePromise = page.waitForResponse(
     (response) => response.url().includes("/api/generate-report") && response.request().method() === "POST",
   );
@@ -49,4 +64,10 @@ test("field workflow smoke test", async ({ page }) => {
   await page.goto("/certs");
   await expect(page.getByRole("heading", { name: "Wrench Certificates" })).toBeVisible();
   await expect(page.getByText("PDF-only storage for Phase 1 reference")).toBeVisible();
+
+  const certPath = path.join(tmpdir(), `torque-cert-${Date.now()}.pdf`);
+  await writeFile(certPath, "%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n");
+  await page.locator('input[type="file"]').setInputFiles(certPath);
+  await page.getByRole("button", { name: /Upload certificate/i }).click();
+  await expect(page.getByText("Certificate uploaded.")).toBeVisible();
 });
