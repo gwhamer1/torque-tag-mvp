@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { AlertTriangle, Camera, CheckCircle2, Download, Loader2, Upload } from "lucide-react";
+import { validateReportForm } from "@/lib/reportValidation";
 import type { ReportFormData, StoredFile, TorqueTagFields } from "@/lib/types";
 
 type ExtractionResponse = {
@@ -110,6 +111,7 @@ export function SubmitFlow() {
     if (!form.expected_torque_ftlbs || !form.torque_applied_ftlbs) return false;
     return Number(form.expected_torque_ftlbs) !== Number(form.torque_applied_ftlbs);
   }, [form.expected_torque_ftlbs, form.torque_applied_ftlbs]);
+  const validationErrors = useMemo(() => validateReportForm(form), [form]);
 
   function updateField(key: keyof ReportFormData, value: string) {
     const numericKeys: Array<keyof ReportFormData> = [
@@ -148,6 +150,10 @@ export function SubmitFlow() {
 
   async function generateReport() {
     if (!recordId) return;
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(" "));
+      return;
+    }
     setError(null);
     setIsGenerating(true);
     try {
@@ -315,13 +321,19 @@ export function SubmitFlow() {
 
         <button
           type="button"
-          disabled={!recordId || !confirmed || isGenerating}
+          disabled={!recordId || !confirmed || isGenerating || validationErrors.length > 0}
           onClick={generateReport}
           className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#1f6f43] px-4 py-3 text-sm font-semibold text-white hover:bg-[#185a36] disabled:cursor-not-allowed disabled:bg-[#9fb7a9]"
         >
           {isGenerating ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <CheckCircle2 aria-hidden className="size-4" />}
           Generate DS 2.12 Word report
         </button>
+
+        {validationErrors.length > 0 ? (
+          <div className="mt-3 rounded-md border border-[#e5b4a5] bg-[#fff5ef] p-3 text-sm font-medium text-[#8a321b]">
+            {validationErrors.join(" ")}
+          </div>
+        ) : null}
 
         {reportUrl ? (
           <a

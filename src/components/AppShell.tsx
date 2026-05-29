@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ClipboardList, FileText, Gauge, Upload } from "lucide-react";
+import { AlertTriangle, ClipboardList, FileText, Gauge, Upload } from "lucide-react";
 
 const nav = [
   { href: "/", label: "Dashboard", icon: ClipboardList },
@@ -39,6 +39,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
+        </div>
+        <div className="border-t border-[#ecd28a] bg-[#fff8df]">
+          <div className="mx-auto flex max-w-6xl items-start gap-2 px-4 py-2 text-sm font-semibold text-[#6f4a10]">
+            <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
+            <span>MVP documentation tool only. Confirm torque values against approved torque package before use.</span>
+          </div>
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:py-8">{children}</main>
