@@ -50,6 +50,10 @@ export type StoredFile = {
   createdAt: string;
 };
 
+export type CropPreview = StoredFile & {
+  label: string;
+};
+
 export type TorqueRecord = {
   id: string;
   createdAt: string;
@@ -58,6 +62,7 @@ export type TorqueRecord = {
   extracted: TorqueTagFields;
   confirmed?: ReportFormData;
   photo?: StoredFile;
+  crops?: CropPreview[];
   report?: StoredFile;
 };
 

@@ -68,3 +68,12 @@ export async function downloadSupabaseObject(bucket: string, objectPath: string)
 
   return Buffer.from(await data.arrayBuffer());
 }
+
+export async function deleteSupabaseObject(bucket: string, objectPath: string) {
+  const supabase = getSupabaseStorageClient();
+  if (!supabase) throw new Error("Supabase storage is not configured.");
+
+  await ensureSupabaseBucket(bucket);
+  const { error } = await supabase.storage.from(bucket).remove([objectPath]);
+  if (error) throw error;
+}

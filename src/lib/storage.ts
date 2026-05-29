@@ -2,11 +2,12 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import {
+  deleteSupabaseObject,
   downloadSupabaseObject,
   isSupabaseStorageConfigured,
   uploadSupabaseObject,
 } from "@/lib/supabaseStorage";
-import type { CertRecord, StoredFile, TorqueRecord, TorqueTagFields } from "@/lib/types";
+import type { CertRecord, CropPreview, StoredFile, TorqueRecord, TorqueTagFields } from "@/lib/types";
 
 const root = /*turbopackIgnore: true*/ process.cwd();
 const storageRoot = path.join(root, "storage");
@@ -88,6 +89,27 @@ export async function readStoredFileBuffer(kind: StorageKind, fileName: string) 
   return fs.readFile(resolveStoredPath(kind, fileName));
 }
 
+export async function deleteStoredFile(kind: StorageKind, fileName?: string | null) {
+  if (!fileName) return null;
+
+  if (isSupabaseStorageConfigured()) {
+    await deleteSupabaseObject(`torque-${kind}`, fileName);
+    return null;
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error("Supabase storage is required in production deployments.");
+  }
+
+  try {
+    await fs.unlink(resolveStoredPath(kind, fileName));
+    return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "File was already missing.";
+    throw error;
+  }
+}
+
 export async function readRecords(): Promise<TorqueRecord[]> {
   if (isSupabaseStorageConfigured()) {
     try {
@@ -126,7 +148,7 @@ export async function writeRecords(records: TorqueRecord[]) {
   await fs.writeFile(recordsPath, JSON.stringify(records, null, 2));
 }
 
-export async function createRecord(extracted: TorqueTagFields, photo: StoredFile) {
+export async function createRecord(extracted: TorqueTagFields, photo: StoredFile, crops: CropPreview[] = []) {
   const records = await readRecords();
   const record: TorqueRecord = {
     id: randomUUID(),
@@ -135,6 +157,7 @@ export async function createRecord(extracted: TorqueTagFields, photo: StoredFile
     status: extracted.ocr_confidence < 0.75 ? "needs_review" : "draft",
     extracted,
     photo,
+    crops,
   };
   records.unshift(record);
   await writeRecords(records);
@@ -153,6 +176,42 @@ export async function updateRecord(record: TorqueRecord) {
 
 export async function findRecord(id: string) {
   return (await readRecords()).find((record) => record.id === id) ?? null;
+}
+
+export async function deleteRecord(id: string) {
+  const records = await readRecords();
+  const record = records.find((item) => item.id === id);
+  if (!record) return { record: null, warnings: ["Report record was not found."] };
+
+  const warnings: string[] = [];
+  const files = [
+    { kind: "reports" as const, fileName: record.report?.fileName, label: "report DOCX" },
+    { kind: "photos" as const, fileName: record.photo?.fileName, label: "photo" },
+    ...(record.crops ?? []).map((crop) => ({ kind: "photos" as const, fileName: crop.fileName, label: `crop ${crop.label}` })),
+  ];
+
+  for (const file of files) {
+    if (!file.fileName) continue;
+    try {
+      const warning = await deleteStoredFile(file.kind, file.fileName);
+      if (warning) warnings.push(`${file.label}: ${warning}`);
+    } catch (error) {
+      warnings.push(`${file.label}: ${error instanceof Error ? error.message : "delete failed"}`);
+    }
+  }
+
+  await writeRecords(records.filter((item) => item.id !== id));
+  return { record, warnings };
+}
+
+export async function deleteAllReportRecords() {
+  const records = await readRecords();
+  const warnings: string[] = [];
+  for (const record of records) {
+    const result = await deleteRecord(record.id);
+    warnings.push(...result.warnings);
+  }
+  return { deletedCount: records.length, warnings };
 }
 
 export async function readCerts(): Promise<CertRecord[]> {
@@ -199,6 +258,52 @@ export async function addCert(file: StoredFile) {
   await ensureStorage();
   await fs.writeFile(certsPath, JSON.stringify(certs, null, 2));
   return cert;
+}
+
+export async function writeCerts(certs: CertRecord[]) {
+  if (isSupabaseStorageConfigured()) {
+    await uploadSupabaseObject(
+      metadataBucket,
+      "certs.json",
+      Buffer.from(JSON.stringify(certs, null, 2)),
+      "application/json",
+    );
+    return;
+  }
+
+  if (isProductionRuntime()) {
+    throw new Error("Supabase storage is required in production deployments.");
+  }
+
+  await ensureStorage();
+  await fs.writeFile(certsPath, JSON.stringify(certs, null, 2));
+}
+
+export async function deleteCert(id: string) {
+  const certs = await readCerts();
+  const cert = certs.find((item) => item.id === id);
+  if (!cert) return { cert: null, warnings: ["Certificate record was not found."] };
+
+  const warnings: string[] = [];
+  try {
+    const warning = await deleteStoredFile("certs", cert.file.fileName);
+    if (warning) warnings.push(warning);
+  } catch (error) {
+    warnings.push(error instanceof Error ? error.message : "Certificate file delete failed.");
+  }
+
+  await writeCerts(certs.filter((item) => item.id !== id));
+  return { cert, warnings };
+}
+
+export async function deleteAllCerts() {
+  const certs = await readCerts();
+  const warnings: string[] = [];
+  for (const cert of certs) {
+    const result = await deleteCert(cert.id);
+    warnings.push(...result.warnings);
+  }
+  return { deletedCount: certs.length, warnings };
 }
 
 export function resolveStoredPath(kind: StorageKind, fileName: string) {

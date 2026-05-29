@@ -5,7 +5,7 @@ const useRemoteServer = Boolean(process.env.PLAYWRIGHT_BASE_URL);
 
 export default defineConfig({
   testDir: "./tests",
-  timeout: 60_000,
+  timeout: 120_000,
   expect: { timeout: 15_000 },
   use: {
     baseURL,

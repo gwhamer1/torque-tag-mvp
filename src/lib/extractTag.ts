@@ -107,10 +107,16 @@ export const emptyExtraction: TorqueTagFields = {
   notes: null,
 };
 
-type ExtractionImage = {
+export type ExtractionImage = {
   label: string;
   buffer: Buffer;
   mimeType: string;
+};
+
+export type ExtractTagResult = {
+  fields: TorqueTagFields;
+  crops: ExtractionImage[];
+  cropError?: string;
 };
 
 type CropBox = {
@@ -260,7 +266,7 @@ async function makeJpegCrop(baseImage: sharp.Sharp, box: CropBox, width: number,
   return baseImage.clone().extract(clampBox(box, width, height)).jpeg({ quality: 88 }).toBuffer();
 }
 
-async function createExtractionCrops(imageBuffer: Buffer): Promise<ExtractionImage[]> {
+export async function createExtractionCrops(imageBuffer: Buffer): Promise<ExtractionImage[]> {
   const base = sharp(imageBuffer).rotate();
   const metadata = await base.metadata();
   const width = metadata.width ?? 0;
@@ -329,6 +335,42 @@ async function createExtractionCrops(imageBuffer: Buffer): Promise<ExtractionIma
   return crops;
 }
 
+async function createEnhancedVariants(image: ExtractionImage): Promise<ExtractionImage[]> {
+  if (!image.label.startsWith("field_") && !image.label.startsWith("section_")) return [];
+  const base = sharp(image.buffer);
+  const variants: ExtractionImage[] = [
+    {
+      label: `${image.label}_sharpened`,
+      buffer: await base.clone().sharpen().jpeg({ quality: 88 }).toBuffer(),
+      mimeType: "image/jpeg",
+    },
+    {
+      label: `${image.label}_high_contrast`,
+      buffer: await base.clone().modulate({ brightness: 1.06 }).linear(1.22, -18).jpeg({ quality: 88 }).toBuffer(),
+      mimeType: "image/jpeg",
+    },
+  ];
+
+  if (image.label.startsWith("field_")) {
+    variants.push({
+      label: `${image.label}_grayscale`,
+      buffer: await base.clone().grayscale().normalize().jpeg({ quality: 88 }).toBuffer(),
+      mimeType: "image/jpeg",
+    });
+  }
+
+  return variants;
+}
+
+async function withEnhancedVariants(images: ExtractionImage[]) {
+  const output: ExtractionImage[] = [];
+  for (const image of images) {
+    output.push(image);
+    output.push(...(await createEnhancedVariants(image)));
+  }
+  return output;
+}
+
 async function runVisionExtraction(images: ExtractionImage[], prompt: string) {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await openai.responses.create({
@@ -363,33 +405,111 @@ export async function extractTagWithVision(
   imageBuffer: Buffer,
   mimeType: string,
   originalName: string,
-): Promise<TorqueTagFields> {
+): Promise<ExtractTagResult> {
   if (!process.env.OPENAI_API_KEY) {
-    return demoExtraction(originalName);
+    return { fields: demoExtraction(originalName), crops: [] };
   }
 
   const fullImage = { label: "full_original_image", buffer: imageBuffer, mimeType };
+  let crops: ExtractionImage[] = [];
 
   try {
-    const crops = await createExtractionCrops(imageBuffer);
+    crops = await createExtractionCrops(imageBuffer);
     if (crops.length > 0) {
-      const extracted = await runVisionExtraction([fullImage, ...crops], CROP_EXTRACTION_PROMPT);
+      const extracted = await runVisionExtraction([fullImage, ...(await withEnhancedVariants(crops))], CROP_EXTRACTION_PROMPT);
       return {
+        fields: {
         ...extracted,
         notes: extracted.notes
           ? `${extracted.notes} Crop-based extraction used; review any fields marked Needs Review.`
           : "Crop-based extraction used; review any fields marked Needs Review.",
+        },
+        crops,
       };
     }
   } catch (error) {
     console.error("Crop-based extraction failed; falling back to full-image extraction", error);
+    const extracted = await runVisionExtraction([fullImage], EXTRACTION_PROMPT);
+    return {
+      fields: {
+        ...extracted,
+        notes: extracted.notes
+          ? `${extracted.notes} Full-image fallback extraction used because crop processing failed.`
+          : "Full-image fallback extraction used because crop processing failed.",
+      },
+      crops,
+      cropError: error instanceof Error ? error.message : "Crop generation failed.",
+    };
   }
 
   const extracted = await runVisionExtraction([fullImage], EXTRACTION_PROMPT);
   return {
-    ...extracted,
-    notes: extracted.notes
-      ? `${extracted.notes} Full-image fallback extraction used.`
-      : "Full-image fallback extraction used.",
+    fields: {
+      ...extracted,
+      notes: extracted.notes
+        ? `${extracted.notes} Full-image fallback extraction used.`
+        : "Full-image fallback extraction used.",
+    },
+    crops,
+  };
+}
+
+export async function rereadFieldWithVision(field: keyof TorqueTagFields, crop: ExtractionImage) {
+  if (!process.env.OPENAI_API_KEY) {
+    return { value: null, confidence: 0, notes: "OPENAI_API_KEY is not configured." };
+  }
+
+  const prompt = `Read only this field from a Reed Energy Group torque tag crop: ${field}.
+
+Do not read any other field. Do not guess.
+Return ONLY valid JSON with this exact shape:
+{
+  "value": string | number | boolean | null,
+  "confidence": number,
+  "notes": string | null
+}
+
+Return null if illegible.
+For torque_applied_ftlbs, return the number only and strip FT/LBS text.
+For dates, normalize to MM/DD/YYYY when possible.`;
+
+  const images = [crop, ...(await createEnhancedVariants(crop))];
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const response = await openai.responses.create({
+    model: process.env.OPENAI_VISION_MODEL ?? "gpt-4.1",
+    input: [
+      {
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          ...images.flatMap((image) => [
+            { type: "input_text" as const, text: `Image: ${image.label}` },
+            {
+              type: "input_image" as const,
+              image_url: `data:${image.mimeType};base64,${image.buffer.toString("base64")}`,
+              detail: "high" as const,
+            },
+          ]),
+        ],
+      },
+    ],
+  });
+
+  const text = response.output_text?.trim() ?? "";
+  const jsonStart = text.indexOf("{");
+  const jsonEnd = text.lastIndexOf("}");
+  const json = jsonStart >= 0 && jsonEnd >= jsonStart ? text.slice(jsonStart, jsonEnd + 1) : text;
+  const parsed = JSON.parse(json) as { value?: unknown; confidence?: unknown; notes?: unknown };
+  const rawValue = parsed.value;
+  const value =
+    field === "torque_applied_ftlbs" && typeof rawValue === "string"
+      ? Number(rawValue.replace(/[^\d.]/g, "")) || null
+      : rawValue ?? null;
+  const confidence = typeof parsed.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0;
+
+  return {
+    value,
+    confidence,
+    notes: typeof parsed.notes === "string" ? parsed.notes : null,
   };
 }

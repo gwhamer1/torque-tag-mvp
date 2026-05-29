@@ -4,6 +4,11 @@ import { tmpdir } from "os";
 import { expect, test } from "@playwright/test";
 
 test("field workflow smoke test", async ({ page }) => {
+  const missingReport = await page.request.delete("/api/reports/not-a-real-record");
+  expect(missingReport.status()).toBe(404);
+  const missingCert = await page.request.delete("/api/certs/not-a-real-cert");
+  expect(missingCert.status()).toBe(404);
+
   await page.goto("/");
   await expect(page.getByText("Active Job Dashboard")).toBeVisible();
   await expect(
@@ -20,6 +25,9 @@ test("field workflow smoke test", async ({ page }) => {
   await page.getByRole("button", { name: /Extract tag data/i }).click();
   await expect(page.getByText("Review and Correct Fields")).toBeVisible();
   await expect(page.getByRole("button", { name: "Skip AI / Enter Manually" })).toBeVisible();
+  await page.getByText("View AI crops").click();
+  await expect(page.getByText("full_tag_crop")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Re-read field" }).first()).toBeVisible();
 
   const tagNumberInput = page.getByRole("textbox", { name: /Tag #/ }).first();
   await tagNumberInput.fill("TQ 428");
@@ -62,6 +70,14 @@ test("field workflow smoke test", async ({ page }) => {
   await page.goto("/reports");
   await expect(page.getByRole("heading", { name: "Generated Reports" })).toBeVisible();
   await expect(page.getByRole("link", { name: "DOCX" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete all test reports" })).toBeVisible();
+  await page.getByRole("button", { name: "Delete", exact: true }).first().click();
+  await expect(page.getByText("Delete this test report?")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("Delete this test report?")).toBeHidden();
+  await page.getByRole("button", { name: "Delete", exact: true }).first().click();
+  await page.getByRole("button", { name: "Confirm delete" }).click();
+  await expect(page.getByText(/Report deleted|Deleted with warnings/)).toBeVisible();
 
   await page.goto("/certs");
   await expect(page.getByRole("heading", { name: "Wrench Certificates" })).toBeVisible();
@@ -72,4 +88,9 @@ test("field workflow smoke test", async ({ page }) => {
   await page.locator('input[type="file"]').setInputFiles(certPath);
   await page.getByRole("button", { name: /Upload certificate/i }).click();
   await expect(page.getByText("Certificate uploaded.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete all test certs" })).toBeVisible();
+  await page.getByRole("button", { name: "Delete", exact: true }).first().click();
+  await expect(page.getByText("Delete this certificate?")).toBeVisible();
+  await page.getByRole("button", { name: "Confirm delete" }).click();
+  await expect(page.getByText(/Certificate deleted|Deleted with warnings/)).toBeVisible();
 });

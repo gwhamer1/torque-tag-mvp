@@ -3,7 +3,7 @@ import type { ReportFormData } from "@/lib/types";
 export function validateReportForm(form: ReportFormData) {
   const errors: string[] = [];
 
-  if (!form.tag_number?.trim() && !form.customer_flange_tag_number?.trim()) {
+  if (!form.tag_number?.trim()) {
     errors.push("Tag number is required before generating the report.");
   }
 

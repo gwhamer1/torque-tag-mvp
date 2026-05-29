@@ -3,13 +3,20 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Camera, CheckCircle2, Download, Loader2, Upload } from "lucide-react";
 import { validateReportForm } from "@/lib/reportValidation";
-import type { ReportFormData, StoredFile, TorqueTagFields } from "@/lib/types";
+import type { CropPreview, ReportFormData, StoredFile, TorqueTagFields } from "@/lib/types";
 
 type ExtractionResponse = {
   recordId: string;
   photo: StoredFile;
+  crops?: CropPreview[];
   extracted: TorqueTagFields;
   status: string;
+};
+
+type FieldSuggestion = {
+  value: string | number | boolean | null;
+  confidence: number;
+  notes: string | null;
 };
 
 const today = () => new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
@@ -101,8 +108,11 @@ export function SubmitFlow() {
   const [recordId, setRecordId] = useState<string | null>(null);
   const [form, setForm] = useState<ReportFormData>(() => initialForm(blankExtraction, ""));
   const [photo, setPhoto] = useState<StoredFile | null>(null);
+  const [crops, setCrops] = useState<CropPreview[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [rereadingField, setRereadingField] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<Partial<Record<keyof TorqueTagFields, FieldSuggestion>>>({});
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportUrl, setReportUrl] = useState<string | null>(null);
@@ -140,6 +150,8 @@ export function SubmitFlow() {
       if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "Extraction failed.");
       setRecordId(payload.recordId);
       setPhoto(payload.photo);
+      setCrops(payload.crops ?? []);
+      setSuggestions({});
       setForm(initialForm(payload.extracted, payload.photo.fileName));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Extraction failed.");
@@ -163,12 +175,40 @@ export function SubmitFlow() {
       if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "Manual entry setup failed.");
       setRecordId(payload.recordId);
       setPhoto(payload.photo);
+      setCrops(payload.crops ?? []);
+      setSuggestions({});
       setForm(initialForm(payload.extracted, payload.photo.fileName));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Manual entry setup failed.");
     } finally {
       setIsExtracting(false);
     }
+  }
+
+  async function rereadField(field: keyof TorqueTagFields) {
+    if (!recordId) return;
+    setRereadingField(field);
+    setError(null);
+    try {
+      const response = await fetch("/api/reread-field", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId, field }),
+      });
+      const payload = (await response.json()) as { suggestion?: FieldSuggestion; error?: string };
+      if (!response.ok || payload.error || !payload.suggestion) throw new Error(payload.error ?? "Field re-read failed.");
+      setSuggestions((current) => ({ ...current, [field]: payload.suggestion }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Field re-read failed.");
+    } finally {
+      setRereadingField(null);
+    }
+  }
+
+  function applySuggestion(field: keyof TorqueTagFields) {
+    const suggestion = suggestions[field];
+    if (!suggestion) return;
+    updateField(field, suggestion.value === null ? "" : String(suggestion.value));
   }
 
   async function generateReport() {
@@ -203,15 +243,19 @@ export function SubmitFlow() {
           <div>
             <h1 className="text-xl font-semibold">Capture Completed Torque Tag</h1>
             <ul className="mt-3 grid gap-2 text-sm text-[#607066]">
-              <li>Hold tag flat.</li>
               <li>Fill the frame.</li>
+              <li>Keep the tag flat.</li>
+              <li>Take photo straight-on.</li>
               <li>Avoid glare.</li>
-              <li>Use good lighting.</li>
+              <li>Use flash or better lighting.</li>
+              <li>Print clearly, no cursive.</li>
+              <li>Write torque value as numbers only where possible.</li>
             </ul>
           </div>
         </div>
 
         <label className="mt-5 flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-[#9fb7a9] bg-[#fbfcf8] p-4 text-center hover:bg-[#eef4ed]">
+          <span className="mb-4 block h-24 w-16 rounded-t-[22px] rounded-b-sm border-4 border-[#1f6f43] bg-white shadow-inner sm:h-28 sm:w-20" />
           <Upload aria-hidden className="mb-3 size-6 text-[#1f6f43]" />
           <span className="font-semibold">Take photo or upload image</span>
           <span className="mt-1 text-sm text-[#607066]">JPEG, PNG, WEBP, or GIF</span>
@@ -258,6 +302,32 @@ export function SubmitFlow() {
             Open saved photo
           </a>
         ) : null}
+
+        {photo ? (
+          <details className="mt-4 rounded-md border border-[#d8ddd3] bg-[#fbfcf8] p-3">
+            <summary className="cursor-pointer text-sm font-semibold text-[#1f6f43]">View AI crops</summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <figure className="rounded-md border border-[#d8ddd3] bg-white p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photo.url} alt="Original torque tag" className="h-44 w-full object-contain" />
+                <figcaption className="mt-2 text-xs font-semibold text-[#607066]">original image</figcaption>
+              </figure>
+              {crops.length > 0 ? (
+                crops.map((crop) => (
+                  <figure key={crop.fileName} className="rounded-md border border-[#d8ddd3] bg-white p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={crop.url} alt={crop.label} className="h-44 w-full object-contain" />
+                    <figcaption className="mt-2 text-xs font-semibold text-[#607066]">{crop.label}</figcaption>
+                  </figure>
+                ))
+              ) : (
+                <p className="rounded-md bg-white p-3 text-sm text-[#607066]">
+                  Crop previews are not available. Full-image extraction remains available.
+                </p>
+              )}
+            </div>
+          </details>
+        ) : null}
       </section>
 
       <section className="rounded-md border border-[#d8ddd3] bg-white p-5 shadow-sm">
@@ -282,6 +352,14 @@ export function SubmitFlow() {
             const value = form[field.key];
             const confidence = form.field_confidence?.[field.key];
             const needsAttention = value === null || value === "" || (typeof confidence === "number" && confidence < 0.75);
+            const isCritical = [
+              "tag_number",
+              "torque_applied_ftlbs",
+              "torque_wrench_number",
+              "torqued_by",
+              "torque_date",
+            ].includes(field.key);
+            const suggestion = suggestions[field.key];
             return (
               <label key={field.key} className="grid gap-1">
                 <span className="flex items-center gap-2 text-sm font-semibold">
@@ -318,6 +396,31 @@ export function SubmitFlow() {
                     }`}
                   />
                 )}
+                {isCritical ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={!recordId || rereadingField === field.key}
+                      onClick={() => rereadField(field.key)}
+                      className="rounded-md border border-[#9fb7a9] px-2 py-1 text-xs font-semibold text-[#1f6f43] hover:bg-[#eef4ed] disabled:text-[#9fb7a9]"
+                    >
+                      {rereadingField === field.key ? "Reading..." : "Re-read field"}
+                    </button>
+                    {suggestion ? (
+                      <span className="text-xs text-[#607066]">
+                        Suggested: <strong>{suggestion.value === null ? "illegible" : String(suggestion.value)}</strong>{" "}
+                        ({Math.round(suggestion.confidence * 100)}%)
+                        <button
+                          type="button"
+                          onClick={() => applySuggestion(field.key)}
+                          className="ml-2 font-semibold text-[#1f6f43]"
+                        >
+                          Use
+                        </button>
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
               </label>
             );
           })}
