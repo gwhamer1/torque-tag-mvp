@@ -16,8 +16,14 @@ test("field workflow smoke test", async ({ page }) => {
     .setInputFiles(path.join(process.cwd(), "public", "examples", "filled-torque-tag.jpeg"));
 
   await page.getByRole("button", { name: /Extract tag data/i }).click();
-  await expect(page.locator('input[value="TQ 428"]').first()).toBeVisible();
   await expect(page.getByText("Review and Correct Fields")).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Tag #", exact: true }).fill("TQ 428");
+  await page.getByLabel("Torqued by").fill("Dill, Bob");
+  await page.getByLabel("Torque applied ft/lbs").fill("150");
+  await page.getByLabel("Expected torque ft/lbs").fill("151");
+  await expect(page.getByText("Expected torque and applied torque do not match.")).toBeVisible();
+  await page.getByLabel("Expected torque ft/lbs").fill("150");
 
   await page.getByRole("checkbox").check();
   const generateResponsePromise = page.waitForResponse(

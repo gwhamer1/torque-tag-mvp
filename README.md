@@ -20,6 +20,8 @@ npm run dev
 
 Set `OPENAI_API_KEY` in `.env.local` to enable live AI extraction. Without a key, the sample `filled-torque-tag.jpeg` uses a local demo extraction so the report workflow can still be tested.
 
+If `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are present, the app stores photos, reports, certificates, and metadata JSON in Supabase Storage buckets. Without those values it falls back to local `storage/` files.
+
 ## Useful Commands
 
 ```bash

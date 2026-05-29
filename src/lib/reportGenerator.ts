@@ -115,16 +115,13 @@ export function buildReportTemplateData(form: ReportFormData) {
   };
 }
 
-export async function generateReportDocx(form: ReportFormData, photoPath: string) {
-  const [templateBuffer, photoBuffer] = await Promise.all([
-    fs.readFile(templatePath),
-    fs.readFile(photoPath),
-  ]);
+export async function generateReportDocx(form: ReportFormData, photoBuffer: Buffer, photoName: string) {
+  const templateBuffer = await fs.readFile(templatePath);
   const zip = new PizZip(templateBuffer);
   const documentFile = zip.file("word/document.xml");
   if (!documentFile) throw new Error("Template is missing word/document.xml.");
 
-  const imageExt = path.extname(photoPath).toLowerCase() || ".jpg";
+  const imageExt = path.extname(photoName).toLowerCase() || ".jpg";
   const imageName = `torque-tag-${Date.now()}${imageExt === ".jpeg" ? ".jpg" : imageExt}`;
   const imageTarget = `media/${imageName}`;
   const relId = `rIdTorqueTag${Date.now()}`;

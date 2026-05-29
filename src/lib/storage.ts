@@ -1,12 +1,18 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import {
+  downloadSupabaseObject,
+  isSupabaseStorageConfigured,
+  uploadSupabaseObject,
+} from "@/lib/supabaseStorage";
 import type { CertRecord, StoredFile, TorqueRecord, TorqueTagFields } from "@/lib/types";
 
 const root = /*turbopackIgnore: true*/ process.cwd();
 const storageRoot = path.join(root, "storage");
 const recordsPath = path.join(storageRoot, "records.json");
 const certsPath = path.join(storageRoot, "certs.json");
+const metadataBucket = "torque-app-data";
 
 export const storageDirs = {
   photos: path.join(storageRoot, "photos"),
@@ -24,6 +30,14 @@ function cleanFileName(name: string) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
 }
 
+function contentTypeFor(kind: StorageKind, fileName: string) {
+  if (kind === "reports") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (kind === "certs") return "application/pdf";
+  if (fileName.toLowerCase().endsWith(".png")) return "image/png";
+  if (fileName.toLowerCase().endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
+}
+
 export function fileUrl(kind: StorageKind, fileName: string) {
   return `/api/files/${kind}/${encodeURIComponent(fileName)}`;
 }
@@ -39,7 +53,13 @@ export async function saveBufferFile(
   const fileName = `${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID()}-${cleanFileName(
     path.basename(originalName, path.extname(originalName)),
   )}${ext}`;
-  await fs.writeFile(path.join(storageDirs[kind], fileName), buffer);
+
+  if (isSupabaseStorageConfigured()) {
+    await uploadSupabaseObject(`torque-${kind}`, fileName, buffer, contentTypeFor(kind, fileName));
+  } else {
+    await fs.writeFile(path.join(storageDirs[kind], fileName), buffer);
+  }
+
   return {
     fileName,
     originalName,
@@ -48,8 +68,24 @@ export async function saveBufferFile(
   };
 }
 
+export async function readStoredFileBuffer(kind: StorageKind, fileName: string) {
+  if (isSupabaseStorageConfigured()) {
+    return downloadSupabaseObject(`torque-${kind}`, fileName);
+  }
+
+  return fs.readFile(resolveStoredPath(kind, fileName));
+}
+
 export async function readRecords(): Promise<TorqueRecord[]> {
   await ensureStorage();
+  if (isSupabaseStorageConfigured()) {
+    try {
+      return JSON.parse((await downloadSupabaseObject(metadataBucket, "records.json")).toString("utf8")) as TorqueRecord[];
+    } catch {
+      return [];
+    }
+  }
+
   try {
     return JSON.parse(await fs.readFile(recordsPath, "utf8")) as TorqueRecord[];
   } catch {
@@ -59,6 +95,16 @@ export async function readRecords(): Promise<TorqueRecord[]> {
 
 export async function writeRecords(records: TorqueRecord[]) {
   await ensureStorage();
+  if (isSupabaseStorageConfigured()) {
+    await uploadSupabaseObject(
+      metadataBucket,
+      "records.json",
+      Buffer.from(JSON.stringify(records, null, 2)),
+      "application/json",
+    );
+    return;
+  }
+
   await fs.writeFile(recordsPath, JSON.stringify(records, null, 2));
 }
 
@@ -93,6 +139,14 @@ export async function findRecord(id: string) {
 
 export async function readCerts(): Promise<CertRecord[]> {
   await ensureStorage();
+  if (isSupabaseStorageConfigured()) {
+    try {
+      return JSON.parse((await downloadSupabaseObject(metadataBucket, "certs.json")).toString("utf8")) as CertRecord[];
+    } catch {
+      return [];
+    }
+  }
+
   try {
     return JSON.parse(await fs.readFile(certsPath, "utf8")) as CertRecord[];
   } catch {
@@ -108,6 +162,16 @@ export async function addCert(file: StoredFile) {
     file,
   };
   certs.unshift(cert);
+  if (isSupabaseStorageConfigured()) {
+    await uploadSupabaseObject(
+      metadataBucket,
+      "certs.json",
+      Buffer.from(JSON.stringify(certs, null, 2)),
+      "application/json",
+    );
+    return cert;
+  }
+
   await fs.writeFile(certsPath, JSON.stringify(certs, null, 2));
   return cert;
 }

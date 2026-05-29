@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { generateReportDocx } from "@/lib/reportGenerator";
 import { validateReportForm } from "@/lib/reportValidation";
-import { findRecord, resolveStoredPath, saveBufferFile, updateRecord } from "@/lib/storage";
+import { findRecord, readStoredFileBuffer, saveBufferFile, updateRecord } from "@/lib/storage";
 import type { ReportFormData } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -24,8 +24,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Saved torque tag photo was not found." }, { status: 404 });
     }
 
-    const photoPath = resolveStoredPath("photos", record.photo.fileName);
-    const reportBuffer = await generateReportDocx(body.form, photoPath);
+    const photoBuffer = await readStoredFileBuffer("photos", record.photo.fileName);
+    const reportBuffer = await generateReportDocx(body.form, photoBuffer, record.photo.fileName);
     const tag = body.form.tag_number || body.form.customer_flange_tag_number || "torque-tag";
     const safeTag = tag.replace(/[^a-zA-Z0-9._-]/g, "_");
     const report = await saveBufferFile("reports", reportBuffer, `DS-2.12-${safeTag}.docx`, ".docx");
