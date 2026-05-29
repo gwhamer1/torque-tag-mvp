@@ -19,8 +19,10 @@ test("field workflow smoke test", async ({ page }) => {
 
   await page.getByRole("button", { name: /Extract tag data/i }).click();
   await expect(page.getByText("Review and Correct Fields")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Skip AI / Enter Manually" })).toBeVisible();
 
-  await page.getByRole("textbox", { name: "Tag #", exact: true }).fill("TQ 428");
+  const tagNumberInput = page.getByRole("textbox", { name: /Tag #/ }).first();
+  await tagNumberInput.fill("TQ 428");
   await page.getByLabel("Torqued by").fill("Dill, Bob");
   await page.getByLabel("Torque applied ft/lbs").fill("150");
   await page.getByLabel("Expected torque ft/lbs").fill("151");
@@ -28,10 +30,10 @@ test("field workflow smoke test", async ({ page }) => {
   await page.getByLabel("Expected torque ft/lbs").fill("150");
 
   await page.getByRole("checkbox").check();
-  await page.getByRole("textbox", { name: "Tag #", exact: true }).fill("");
+  await tagNumberInput.fill("");
   await expect(page.getByText("Tag number is required before generating the report.")).toBeVisible();
   await expect(page.getByRole("button", { name: /Generate DS 2.12 Word report/i })).toBeDisabled();
-  await page.getByRole("textbox", { name: "Tag #", exact: true }).fill("TQ 428");
+  await tagNumberInput.fill("TQ 428");
   await page.getByLabel("Torque applied ft/lbs").fill("");
   await expect(page.getByText("Torque applied ft/lbs is required before generating the report.")).toBeVisible();
   await expect(page.getByRole("button", { name: /Generate DS 2.12 Word report/i })).toBeDisabled();

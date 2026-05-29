@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { saveBufferFile } from "@/lib/storage";
+import { emptyExtraction } from "@/lib/extractTag";
+import { createRecord, saveBufferFile } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -16,5 +17,12 @@ export async function POST(request: Request) {
   }
 
   const saved = await saveBufferFile("photos", Buffer.from(await file.arrayBuffer()), file.name || "torque-tag.jpg");
-  return NextResponse.json({ photo: saved });
+  const record = await createRecord(
+    {
+      ...emptyExtraction,
+      notes: "AI extraction skipped. Enter tag values manually before generating the report.",
+    },
+    saved,
+  );
+  return NextResponse.json({ recordId: record.id, photo: saved, extracted: record.extracted, status: record.status });
 }

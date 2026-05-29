@@ -148,6 +148,29 @@ export function SubmitFlow() {
     }
   }
 
+  async function skipAi() {
+    if (!file) return;
+    setError(null);
+    setReportUrl(null);
+    setConfirmed(false);
+    setIsExtracting(true);
+
+    try {
+      const body = new FormData();
+      body.append("photo", file);
+      const response = await fetch("/api/upload-photo", { method: "POST", body });
+      const payload = (await response.json()) as ExtractionResponse | { error: string };
+      if (!response.ok || "error" in payload) throw new Error("error" in payload ? payload.error : "Manual entry setup failed.");
+      setRecordId(payload.recordId);
+      setPhoto(payload.photo);
+      setForm(initialForm(payload.extracted, payload.photo.fileName));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Manual entry setup failed.");
+    } finally {
+      setIsExtracting(false);
+    }
+  }
+
   async function generateReport() {
     if (!recordId) return;
     if (validationErrors.length > 0) {
@@ -210,15 +233,25 @@ export function SubmitFlow() {
           <img src={preview} alt="Selected torque tag preview" className="mt-4 max-h-[420px] w-full rounded-md object-contain" />
         ) : null}
 
-        <button
-          type="button"
-          disabled={!file || isExtracting}
-          onClick={extract}
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#1f6f43] px-4 py-3 text-sm font-semibold text-white hover:bg-[#185a36] disabled:cursor-not-allowed disabled:bg-[#9fb7a9]"
-        >
-          {isExtracting ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Camera aria-hidden className="size-4" />}
-          Extract tag data
-        </button>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={!file || isExtracting}
+            onClick={extract}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#1f6f43] px-4 py-3 text-sm font-semibold text-white hover:bg-[#185a36] disabled:cursor-not-allowed disabled:bg-[#9fb7a9]"
+          >
+            {isExtracting ? <Loader2 aria-hidden className="size-4 animate-spin" /> : <Camera aria-hidden className="size-4" />}
+            Extract tag data
+          </button>
+          <button
+            type="button"
+            disabled={!file || isExtracting}
+            onClick={skipAi}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#9fb7a9] bg-white px-4 py-3 text-sm font-semibold text-[#1f6f43] hover:bg-[#eef4ed] disabled:cursor-not-allowed disabled:text-[#9fb7a9]"
+          >
+            Skip AI / Enter Manually
+          </button>
+        </div>
 
         {photo ? (
           <a href={photo.url} className="mt-3 inline-block text-sm font-semibold text-[#1f6f43]">
@@ -253,7 +286,12 @@ export function SubmitFlow() {
               <label key={field.key} className="grid gap-1">
                 <span className="flex items-center gap-2 text-sm font-semibold">
                   {field.label}
-                  {needsAttention ? <AlertTriangle aria-hidden className="size-4 text-[#b15b24]" /> : null}
+                  {needsAttention ? (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-[#fff5ef] px-2 py-0.5 text-xs font-semibold text-[#8a321b]">
+                      <AlertTriangle aria-hidden className="size-3" />
+                      Needs Review
+                    </span>
+                  ) : null}
                 </span>
                 {field.type === "boolean" ? (
                   <select
